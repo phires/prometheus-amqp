@@ -53,18 +53,6 @@ func NewClient(logger log.Logger, address string, queue string, user string, pas
 		c.connOptions = append(c.connOptions, amqp.ConnSASLPlain(c.username, c.password))
 	}
 
-	client, err := amqp.Dial(c.address, c.connOptions...)
-	if err != nil {
-		return nil, fmt.Errorf("Error dailing AMQP server: %v", err)
-	}
-	c.connection = client
-	session, err := c.connection.NewSession()
-	if err != nil {
-		return nil, fmt.Errorf("Error creating AMQP session: %v", err)
-	}
-	c.session = session
-	level.Debug(c.logger).Log("msg", "amqp connection built", "address", c.address, "queue", c.queue)
-
 	return c, nil
 }
 
@@ -73,7 +61,19 @@ func (c *Client) Write(samples model.Samples) error {
 
 	//var buf bytes.Buffer
 	ctx := context.Background()
-	sender, err := c.session.NewSender(amqp.LinkTargetAddress(c.queue))
+
+	client, err := amqp.Dial(c.address, c.connOptions...)
+	if err != nil {
+		return fmt.Errorf("Error dailing AMQP server: %v", err)
+	}
+
+	session, err := client.NewSession()
+	if err != nil {
+		return fmt.Errorf("Error creating AMQP session: %v", err)
+	}
+	// level.Debug(c.logger).Log("msg", "amqp connection built", "address", c.address, "queue", c.queue)
+
+	sender, err := session.NewSender(amqp.LinkTargetAddress(c.queue))
 	if err != nil {
 		level.Error(c.logger).Log("msg", "error linking to amqp", "queue", c.queue, "error", err)
 		return err
@@ -101,9 +101,10 @@ func (c *Client) Write(samples model.Samples) error {
 		}
 		//level.Debug(c.logger).Log("msg", "message-data", "data", data)
 	}
-	sender.Close(ctx)
-	cancel()
+	session.Close(ctx)
+	client.Close()
 
+	cancel()
 	return nil
 }
 
