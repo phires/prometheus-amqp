@@ -29,6 +29,8 @@ type config struct {
 	remoteTimeout time.Duration
 	listenAddr    string
 	telemetryPath string
+
+	logOnly bool
 }
 
 var (
@@ -71,6 +73,7 @@ func init() {
 
 type writer interface {
 	Write(samples model.Samples) error
+	WriteLog(samples model.Samples) error
 	Name() string
 }
 
@@ -93,6 +96,9 @@ func parseFlags() *config {
 	)
 	flag.StringVar(&cfg.amqpQueueName, "amqp-queue", "",
 		"AMQP queue name. None, if empty.",
+	)
+	flag.BoolVar(&cfg.logOnly, "log-only", false,
+		"If flag is set the metric samples will only be written to the log.",
 	)
 
 	flag.DurationVar(&cfg.remoteTimeout, "send-timeout", 30*time.Second,
@@ -128,7 +134,7 @@ func buildClients(logger log.Logger, cfg *config) ([]writer, []reader) {
 	return writers, readers
 }
 
-func serve(logger log.Logger, addr string, writers []writer, readers []reader) error {
+func serve(logger log.Logger, addr string, writers []writer, readers []reader, cfg *config) error {
 	http.HandleFunc("/write", func(w http.ResponseWriter, r *http.Request) {
 		compressed, err := ioutil.ReadAll(r.Body)
 		if err != nil {
@@ -158,7 +164,7 @@ func serve(logger log.Logger, addr string, writers []writer, readers []reader) e
 		for _, w := range writers {
 			wg.Add(1)
 			go func(rw writer) {
-				sendSamples(logger, rw, samples)
+				sendSamples(logger, rw, samples, cfg)
 				wg.Done()
 			}(w)
 		}
@@ -173,7 +179,8 @@ func protoToSamples(req *prompb.WriteRequest) model.Samples {
 	for _, ts := range req.Timeseries {
 		metric := make(model.Metric, len(ts.Labels))
 		for _, l := range ts.Labels {
-			metric[model.LabelName(l.Name)] = model.LabelValue(l.Value)
+			labelName := model.LabelName(l.Name)
+			metric[labelName] = model.LabelValue(l.Value)
 		}
 
 		for _, s := range ts.Samples {
@@ -187,9 +194,16 @@ func protoToSamples(req *prompb.WriteRequest) model.Samples {
 	return samples
 }
 
-func sendSamples(logger log.Logger, w writer, samples model.Samples) {
+func sendSamples(logger log.Logger, w writer, samples model.Samples, cfg *config) {
 	begin := time.Now()
-	err := w.Write(samples)
+
+	var err error
+	if cfg.logOnly {
+		err = w.WriteLog(samples)
+	} else {
+		err = w.Write(samples)
+	}
+
 	duration := time.Since(begin).Seconds()
 	if err != nil {
 		level.Warn(logger).Log("msg", "Error sending samples to remote storage", "err", err, "storage", w.Name(), "num_samples", len(samples))
@@ -210,5 +224,5 @@ func main() {
 
 	writers, readers := buildClients(logger, cfg)
 	fmt.Println("Listening on :24282")
-	serve(logger, cfg.listenAddr, writers, readers)
+	serve(logger, cfg.listenAddr, writers, readers, cfg)
 }

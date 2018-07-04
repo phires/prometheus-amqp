@@ -56,7 +56,22 @@ func NewClient(logger log.Logger, address string, queue string, user string, pas
 	return c, nil
 }
 
-// Write sends a batch of samples to Graphite.
+// LogWrite only logs the samples without sending them to anywhere
+func (c *Client) WriteLog(samples model.Samples) error {
+	for _, s := range samples {
+		k := pathFromMetric(s.Metric)
+		//t := float64(s.Timestamp.UnixNano()) / 1e9
+		v := float64(s.Value)
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			continue
+		}
+		level.Debug(c.logger).Log("msg", "sample-metric", "path", k, "value", v)
+	}
+
+	return nil
+}
+
+// Write sends a batch of samples to AMQP.
 func (c *Client) Write(samples model.Samples) error {
 
 	//var buf bytes.Buffer
@@ -90,16 +105,17 @@ func (c *Client) Write(samples model.Samples) error {
 		}
 
 		data, err := s.MarshalJSON()
+
 		if err != nil {
 			level.Error(c.logger).Log("msg", "error json", "value", v, "sample", s)
 			continue
 		}
+
 		err = sender.Send(ctx, amqp.NewMessage(data))
 		if err != nil {
 			level.Error(c.logger).Log("msg", "error sending message", "error", err)
-
 		}
-		//level.Debug(c.logger).Log("msg", "message-data", "data", data)
+
 	}
 	session.Close(ctx)
 	client.Close()
