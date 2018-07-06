@@ -2,4 +2,8 @@
 set -e
 
 echo Starting main
-/main --amqp-address $AMQP_ADDRESS --amqp-queue $AMQP_QUEUE
+if [ ! -f $FILTERFILE ]; then
+    touch $FILTERFILE
+fi
+
+/main --log-only --amqp-address $AMQP_ADDRESS --amqp-queue $AMQP_QUEUE --filter-file $FILTERFILE

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/snappy"
 	"github.com/phires/prometheus-amqp/amqp"
+	"github.com/phires/prometheus-amqp/filter"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/promlog"
@@ -31,6 +33,8 @@ type config struct {
 	telemetryPath string
 
 	logOnly bool
+
+	pathFilterConfigFile string
 }
 
 var (
@@ -100,6 +104,8 @@ func parseFlags() *config {
 	flag.BoolVar(&cfg.logOnly, "log-only", false,
 		"If flag is set the metric samples will only be written to the log.",
 	)
+	flag.StringVar(&cfg.pathFilterConfigFile, "filter-file", "",
+		"Filter file to use. If empty, filter is not used")
 
 	flag.DurationVar(&cfg.remoteTimeout, "send-timeout", 30*time.Second,
 		"The timeout to use when sending samples to the remote storage.",
@@ -116,8 +122,7 @@ func buildClients(logger log.Logger, cfg *config) ([]writer, []reader) {
 	var writers []writer
 	var readers []reader
 	if cfg.amqpAddress != "" {
-		fmt.Println("AMQP_ADDRESS: " + cfg.amqpAddress)
-		fmt.Println("AMQP_QUEUE: " + cfg.amqpQueueName)
+		level.Debug(logger).Log("msg", "AMQP writer", "amqpAddress", cfg.amqpAddress, "amqpQueueName", cfg.amqpQueueName)
 
 		c, err := amqp.NewClient(
 			log.With(logger, "storage", "amqp"),
@@ -157,7 +162,7 @@ func serve(logger log.Logger, addr string, writers []writer, readers []reader, c
 			return
 		}
 
-		samples := protoToSamples(&req)
+		samples := protoToSamples(logger, &req)
 		receivedSamples.Add(float64(len(samples)))
 
 		var wg sync.WaitGroup
@@ -174,13 +179,23 @@ func serve(logger log.Logger, addr string, writers []writer, readers []reader, c
 	return http.ListenAndServe(addr, nil)
 }
 
-func protoToSamples(req *prompb.WriteRequest) model.Samples {
+func protoToSamples(logger log.Logger, req *prompb.WriteRequest) model.Samples {
 	var samples model.Samples
 	for _, ts := range req.Timeseries {
 		metric := make(model.Metric, len(ts.Labels))
 		for _, l := range ts.Labels {
 			labelName := model.LabelName(l.Name)
 			metric[labelName] = model.LabelValue(l.Value)
+		}
+
+		// Filter here
+		keep, err := filter.MatchesFilter(metric, logger)
+
+		if err != nil {
+			level.Warn(logger).Log("msg", "Filter failure", "err", err)
+		}
+		if !keep {
+			continue
 		}
 
 		for _, s := range ts.Samples {
@@ -222,7 +237,17 @@ func main() {
 
 	logger := promlog.New(logLevel)
 
+	err := filter.Init(cfg.pathFilterConfigFile)
+	if err != nil {
+		level.Error(logger).Log("msg", "Failed reading metric filter", "file", cfg.pathFilterConfigFile, "err", err)
+		os.Exit(-1)
+	}
+	level.Debug(logger).Log("msg", "Metric filter", "file", cfg.pathFilterConfigFile, "count", filter.Count())
 	writers, readers := buildClients(logger, cfg)
-	fmt.Println("Listening on :24282")
+	level.Debug(logger).Log("msg", "Start listening", "listenAddr", cfg.listenAddr)
+	if cfg.logOnly {
+		level.Debug(logger).Log("msg", "Logging only, not sending anything to queue!")
+	}
+
 	serve(logger, cfg.listenAddr, writers, readers, cfg)
 }
