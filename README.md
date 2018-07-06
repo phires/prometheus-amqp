@@ -117,6 +117,7 @@ Within the filter file you can write one filter per line in the format
 `[LABELNAME] [OPERATION] [CONTENT]`, e.g. `__name__ SI nginx_http_requests_total`.
 
 Valid operations are
+
 Operation|Action|Case-Sensitive
 ---------|------|--------------
 SI|Label name Starts with|no
