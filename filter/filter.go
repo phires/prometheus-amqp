@@ -20,7 +20,7 @@ type Definition struct {
 	Value  string
 }
 
-// Init reads the config file adn (TODO!) registers a hook to reread it when it changes
+// Init reads the config file and (TODO!) registers a hook to reread it when it changes
 func Init(file string) error {
 	err := readConfig(file)
 	if err != nil {

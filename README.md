@@ -106,9 +106,39 @@ If everything is set up it you should start to see metric messages on the queue 
 }
 ```
 
+## Filtering
+
+Because Prometheus create A LOT of metrics, you might overwhelm your processes that consume the messages on the queue. 
+For this you can use a simple label filter, given by the parameter `--filter-file`.
+
+### Filter format
+
+Within the filter file you can write one filter per line in the format
+`[LABELNAME] [OPERATION] [CONTENT]`, e.g. `__name__ SI nginx_http_requests_total`.
+
+Valid operations are
+Operation|Action|Case-Sensitive
+---------|------|--------------
+SI|Label name Starts with|no
+SC|Label name Starts with|yes
+EI|Label name Equals|no
+EC|Label name Equals|yes
+CI|Label name Contains|no
+CC|Label name Contains|yes
+
+The example from above would therefore keep all metrics, that have a value starting with `nginx_http_requests_total` on a label named `__name__`.
+Other examples might be `app EC typo3` to keep all metrics having a label named `app` which has a value of exactly `typo3`.
+
+Warning: If you use the filterfile, all metrics not matching a filter will be discarded silently! 
+If the file is empty, all metrics will be returned.
+
+## Log only
+
+If you set the parameter `--log-only`, no metrics will be sent to the queue but instead being logged to the console. This is useful to set up filters before sending thousands of metrics to the queue.
+
 ## License
 
-This project is licensed under the MIT License - see the LICENSE.md file for details
+This project is licensed under the MIT License - see the LICENSE file for details
 
 ## Acknowledgments
 

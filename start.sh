@@ -6,4 +6,9 @@ if [ ! -f $FILTERFILE ]; then
     touch $FILTERFILE
 fi
 
-/main --log-only --amqp-address $AMQP_ADDRESS --amqp-queue $AMQP_QUEUE --filter-file $FILTERFILE
+if [[ $LOGONLY = "true" ]]
+then
+    /main --log-only --amqp-address $AMQP_ADDRESS --amqp-queue $AMQP_QUEUE --filter-file $FILTERFILE
+else
+    /main --amqp-address $AMQP_ADDRESS --amqp-queue $AMQP_QUEUE --filter-file $FILTERFILE
+fi
